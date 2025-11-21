@@ -7,8 +7,9 @@ from os import listdir
 from os.path import isfile, join
 import os
 import random
+import hashlib
 
-app = FastAPI() 
+app = FastAPI()
 
 
 class User(BaseModel):
@@ -16,14 +17,15 @@ class User(BaseModel):
     email: str
     password: str
     role: Union[str, None] = "basic role"
-    token: Union[str, None] = None
+    technical_token: Union[str, None] = None
+    session_token: Union[str, None] = None
     id: Union[int, None] = -1
- 
 
-class AuthUser(BaseModel):
+
+class AuthUser(BaseModel): 
     login: str
     password: str
-    
+
 
 class ArrayRequest(BaseModel):
     array: List[int]
@@ -33,11 +35,36 @@ class InsertRequest(BaseModel):
     values: List[int]
     position: str = "end"
     index: int = -1
+
+
+@app.middleware("http")
+def check_signature(request: Request, call_next):
+    if request.url.path in ["/users/reg", "/users/auth"]:
+        return call_next(request)
     
-        
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    
+    # ПРОВЕРКА ВАРИАНТ 1
+    user_files = [f for f in os.listdir("users") if f.endswith('.json')]
+    signature_valid = False
+    
+    for user_file in user_files:
+        with open(f"users/{user_file}", 'r') as f:
+            user_data = json.load(f)
+            if user_data.get('session_token') == auth_header:
+                signature_valid = True
+                break
+    
+    if not signature_valid:
+        raise HTTPException(status_code=401, detail="Неверная подпись")
+    
+    return call_next(request)
+
 @app.post("/users/reg")
 def create_user(user: User):
-       
+
     # Проверка существования пользователя
     for file in os.listdir("users"):
         with open(f"users/{file}", 'r') as f:
@@ -47,8 +74,9 @@ def create_user(user: User):
             if data['email'] == user.email:
                 raise HTTPException(status_code=400, detail="Email уже занят")
     
-    user.id = int(time.time())       
-    user.token = str(random.getrandbits(128))
+    user.id = int(time.time())
+    user.technical_token = str(random.getrandbits(128))
+    user.session_token = hashlib.sha256(f"{user.technical_token}{time.time()}".encode()).hexdigest()
     
     with open(f"users/user_{user.id}.json", 'w') as f:
         json.dump(user.model_dump(), f)
@@ -63,7 +91,16 @@ def auth_user(params: AuthUser):
             json_item = json.load(f)
             user = User(**json_item)
             if user.login == params.login and user.password == params.password:
-                return {"login": user.login, "token": user.token}
+                
+                #обновляем сессионный токен
+                user.session_token = hashlib.sha256(f"{user.technical_token}{time.time()}".encode()).hexdigest()
+                with open(file_path, 'w') as f_write:
+                    json.dump(user.model_dump(), f_write)
+                return {
+                    "login": user.login, 
+                    "technical_token": user.technical_token,
+                    "session_token": user.session_token
+                }
             
     raise HTTPException(status_code=401, detail="Неверный логин или пароль")
 
@@ -81,23 +118,23 @@ def gnome_sort(array: List[int]) -> List[int]:
         else:
             arr[i], arr[i + 1] = arr[i + 1], arr[i]
             if i > 0:
-                i -= 1 
+                i -= 1
     return arr
 
-@app.post("/array/")
+@app.post("/array/input/")
 def post_array(request: ArrayRequest):
     global current_array, sort_array
     current_array = request.array
     sort_array = []
     return {"message": "Массив передан", "array": current_array}
 
-@app.get("/array/")
+@app.get("/array/get/")
 def get_array():
     if not sort_array:
         raise HTTPException(status_code=404, detail="Массив не был отсортирован")
     return {"message": "Отсортированный массив", "array": sort_array}
 
-@app.get("/array/range/")
+@app.get("/array/part/")
 def get_array_range(start: int, end: int):
     if not sort_array:
         raise HTTPException(status_code=404, detail="Массив не был отсортирован")
@@ -111,14 +148,14 @@ def generate_array():
     sort_array = []
     return {"message": "Случайный массив сгенерирован", "array": current_array}
 
-@app.delete("/array/")
+@app.delete("/array/delete/")
 def delete_array():
     global current_array, sort_array
     current_array = []
     sort_array = []
     return {"message": "Массив удален"}
 
-@app.post("/sort/")
+@app.post("/array/sort/")
 def sort_array_endpoint():
     global sort_array, current_array
     if not current_array:
