@@ -18,9 +18,14 @@ class AuthUser(BaseModel):
     login: str
     password: str
 
-# ВАРИАНТ 1: ПОДПИСЬ = СЕССИОННЫЙ ТОКЕН
+# ВАРИАНТ 2: ПОДПИСЬ = КЭШ (СЕССИОННЫЙ ТОКЕН + ВРЕМЯ)
 def get_signature():
-    return {"Authorization": session_token}
+    current_time = str(int(time.time()))
+    signature = hashlib.sha256(f"{session_token}{current_time}".encode()).hexdigest()
+    return {
+        "Authorization": signature,
+        "Time": current_time
+    }
 
 def print_error(response):
     error = response.json().get("detail", "Ошибка")
