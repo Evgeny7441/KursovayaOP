@@ -33,18 +33,25 @@ class AuthUser(BaseModel):
     login: str
     password: str
 
-def check_signature(signature):
-    for file in os.listdir("users"):
-        with open(f"users/{file}", 'r') as f:
-            user_data = json.load(f)
-            if user_data.get('session_token') == signature:
-                return
+def check_signature(client_signature):
+    current_time = int(time.time())
+    print(current_time)
+    for time_add in [-3, -2, -1, 0]:
+        check_time = str(current_time + time_add)
+        
+        for file in os.listdir("users"):
+            with open(f"users/{file}", 'r') as f:
+                user_data = json.load(f)
+                user_token = user_data.get('session_token')
+                server_signature = hashlib.sha256(f"{user_token}{check_time}".encode()).hexdigest()
+                if server_signature == client_signature:
+                    return
     raise HTTPException(status_code=401, detail="Неверная подпись")
 
 @app.post("/items/create")
 def create_item(item: Item, request: Request):
-    signature = request.headers.get('Authorization')
-    check_signature(signature)
+    client_signature = request.headers.get('Authorization')
+    check_signature(client_signature)
     
     item.id = int(time.time())
     
@@ -54,8 +61,8 @@ def create_item(item: Item, request: Request):
     
 @app.get("/items/print")
 def all_items(request: Request):
-    signature = request.headers.get('Authorization')
-    check_signature(signature)
+    client_signature = request.headers.get('Authorization')
+    check_signature(client_signature)
     
     json_files_names = [file for file in os.listdir('items/') if file.endswith('.json')]
     data = []

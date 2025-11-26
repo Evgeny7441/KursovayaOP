@@ -3,6 +3,8 @@ import json
 from pydantic import BaseModel
 from typing import Union
 import re
+import time
+import hashlib
 
 session_token = None
 
@@ -26,12 +28,15 @@ class AuthUser(BaseModel):
     login: str
     password: str   
 
-def create_signature_v1():
+def create_signature_v2():
     global session_token
-    return session_token
+    current_time = str(int(time.time()))
+    print(current_time)
+    signature = hashlib.sha256(f"{session_token}{current_time}".encode()).hexdigest()
+    return signature
 
 def send_request(method, url, data=None):   
-    headers = {'Authorization': create_signature_v1()}
+    headers = {'Authorization': create_signature_v2()}
     
     if method.upper() == 'GET':
         response = requests.get(url, headers=headers)
