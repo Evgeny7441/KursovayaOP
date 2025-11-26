@@ -2,6 +2,7 @@ import requests
 import json
 from pydantic import BaseModel
 from typing import Union
+import re
 
 class Item(BaseModel): 
     name: str
@@ -24,14 +25,23 @@ class AuthUser(BaseModel):
     password: str   
 
 
-def send_get(url):
+def send_request(method, url, data=None):
     headers = {'Authorization': 'xxx'}
-    response = requests.get(url, headers = headers)
+    
+    if method.upper() == 'GET':
+        response = requests.get(url, headers=headers)
+    elif method.upper() == 'POST':
+        response = requests.post(url, json=data, headers=headers)
+    elif method.upper() == 'PATCH':
+        response = requests.patch(url, json=data, headers=headers)
+    elif method.upper() == 'DELETE':
+        response = requests.delete(url, headers=headers)
+    
     return response.text, response.status_code
 
 
 def all_items():
-    result, code = send_get("http://localhost:8000/items/print")
+    result, code = send_request('GET', "http://localhost:8000/items/print")
     match code:
         case 200:
             json_items = json.loads(result)
@@ -56,21 +66,63 @@ def create_item():
     
     item_data = Item(name=name, price=price)
     
-    response = requests.post("http://localhost:8000/items/create", json=item_data.model_dump())
+    result, code = send_request('POST', "http://localhost:8000/items/create", item_data.model_dump())
     
-    if response.status_code == 200:
-        created_item = Item(**response.json())
-        print(created_item)
-    else:
-        print("Ошибка добавления товара")
+    match code:
+        case 200:
+            created_item = Item(**json.loads(result))
+            print(f"{created_item} добавлен")
+            
+        case 401:
+            print("Неверные авторизацинные данные")
 
+        case 403:
+            print("Доступ ограничен")
+        
+        case _:
+            print("Неизвестная ошибка")
+
+
+def validate_login(login):
+    if len(login) < 8:
+        print("Ошибка: Логин должен содержать не менее 8 символов")
+        return False
+    return True
+
+def validate_email(email):
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, email):
+        print("Ошибка: Неверный формат email. Пример: user@gmail.com")
+        return False
+    return True
+
+def validate_password(password):
+    password_pattern = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%^&*(),.?":{}|<>]).{10,}$'
+    if not re.match(password_pattern, password):
+        print("Ошибка: Пароль должен содержать мин. 10 символов, заглавные/строчные буквы, спецсимволы")
+        return False
+    return True
 
 def reg():
     print("\nРЕГИСТРАЦИЯ")
     login = input("Логин: ")
-    email = input("Email: ")
-    password = input("Пароль: ")
+    if not validate_login(login):
+        return False
     
+    email = input("Email: ")
+    if not validate_email(email):
+        return False
+    
+    password = input("Пароль: ")
+    if not validate_password(password):
+        return False
+    
+    confirm_password = input("Повторите пароль: ")
+    if password != confirm_password:
+        print("Ошибка: Пароли не совпадают")
+        return False
+    
+    print("Пароли совпадают")
     user_data = User(login=login, email=email, password=password)
     
     response = requests.post("http://localhost:8000/users/reg", json=user_data.model_dump())
@@ -96,9 +148,7 @@ def auth():
     
     if response.status_code == 200:
         user = response.json()
-        print(f"\nАвторизация прошла успешно")
-        print(f"Логин: {user['login']}")
-        print(f"Токен: {user['token']}")
+        print(f"\nАвторизация {user['login']} прошла успешно")
         return True
     else:
         error = response.json().get('detail', 'Ошибка')
