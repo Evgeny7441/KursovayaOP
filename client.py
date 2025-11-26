@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from typing import Union
 import re
 
+session_token = None
+
 class Item(BaseModel): 
     name: str
     description: Union[str, None] = "Описание товара"
@@ -24,9 +26,12 @@ class AuthUser(BaseModel):
     login: str
     password: str   
 
+def create_signature_v1():
+    global session_token
+    return session_token
 
-def send_request(method, url, data=None):
-    headers = {'Authorization': 'xxx'}
+def send_request(method, url, data=None):   
+    headers = {'Authorization': create_signature_v1()}
     
     if method.upper() == 'GET':
         response = requests.get(url, headers=headers)
@@ -104,6 +109,7 @@ def validate_password(password):
     return True
 
 def reg():
+    global session_token
     print("\nРЕГИСТРАЦИЯ")
     login = input("Логин: ")
     if not validate_login(login):
@@ -129,6 +135,7 @@ def reg():
     
     if response.status_code == 200:
         user = response.json()
+        session_token = user['session_token']
         print(f"\nПользователь {user['login']} успешно зарегестрирован")
         return True
     else:
@@ -138,6 +145,7 @@ def reg():
 
 
 def auth():
+    global session_token
     print("\nАВТОРИЗАЦИЯ")
     login = input("Логин: ")
     password = input("Пароль: ")
@@ -148,6 +156,7 @@ def auth():
     
     if response.status_code == 200:
         user = response.json()
+        session_token = user['session_token']
         print(f"\nАвторизация {user['login']} прошла успешно")
         return True
     else:

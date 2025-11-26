@@ -7,6 +7,7 @@ from os import listdir
 from os.path import isfile, join
 import os
 import random
+import hashlib
 
 app = FastAPI()
  
@@ -23,7 +24,8 @@ class User(BaseModel):
     email: str
     password: str
     role: Union[str, None] = "basic role"
-    token: Union[str, None] = None
+    technical_token: Union[str, None] = None
+    session_token: Union[str, None] = None
     id: Union[int, None] = -1
 
 
@@ -32,8 +34,12 @@ class AuthUser(BaseModel):
     password: str
 
 def check_signature(signature):
-    if signature != 'xxx':
-        raise HTTPException(status_code=401, detail="Неверная подпись")
+    for file in os.listdir("users"):
+        with open(f"users/{file}", 'r') as f:
+            user_data = json.load(f)
+            if user_data.get('session_token') == signature:
+                return
+    raise HTTPException(status_code=401, detail="Неверная подпись")
 
 @app.post("/items/create")
 def create_item(item: Item, request: Request):
@@ -72,7 +78,8 @@ def create_user(user: User):
                 raise HTTPException(status_code=400, detail="Email уже занят")
             
     user.id = int(time.time())
-    user.token = str(random.getrandbits(128))
+    user.technical_token = str(random.getrandbits(128))
+    user.session_token = hashlib.sha256(f"{user.technical_token}{time.time()}".encode()).hexdigest()
     
     with open(f"users/user_{user.id}.json", 'w') as f:
         json.dump(user.model_dump(), f)
@@ -87,6 +94,13 @@ def auth_user(params: AuthUser):
             json_item = json.load(f)
             user = User(**json_item)
             if user.login == params.login and user.password == params.password:
-                return {"login": user.login, "token": user.token}
+                
+                user.session_token = hashlib.sha256(f"{user.technical_token}{time.time()}".encode()).hexdigest()
+                with open(file_path, 'w') as f_write:
+                    json.dump(user.model_dump(), f_write)
+                return {
+                    "login": user.login, 
+                    "session_token": user.session_token
+                }
             
     raise HTTPException(status_code=401, detail="Неверный логин или пароль")
