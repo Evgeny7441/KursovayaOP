@@ -28,14 +28,15 @@ class AuthUser(BaseModel):
     login: str
     password: str   
 
-def create_signature_v3(data):
+def create_signature_v4(data):
     global session_token
+    current_time = str(int(time.time()))
     body_str = json.dumps(data) if data is not None else "{}"
-    signature = hashlib.sha256(f"{session_token}{body_str}".encode()).hexdigest()
+    signature = hashlib.sha256(f"{session_token}{body_str}{current_time}".encode()).hexdigest()
     return signature
 
 def send_request(method, url, data=None):   
-    headers = {'Authorization': create_signature_v3(data)}
+    headers = {'Authorization': create_signature_v4(data)}
     
     if method.upper() == 'GET':
         response = requests.get(url, headers=headers)

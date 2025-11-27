@@ -35,16 +35,19 @@ class AuthUser(BaseModel):
 
 def check_signature(request: Request, body: dict = None):
     client_signature = request.headers.get('Authorization')
-
+    current_time = int(time.time())
     body_str = json.dumps(body) if body is not None else "{}"
     
-    for file in os.listdir("users"):
-        with open(f"users/{file}", 'r') as f:
-            user_data = json.load(f)
-            user_token = user_data.get('session_token')
-            server_signature = hashlib.sha256(f"{user_token}{body_str}".encode()).hexdigest()              
-            if server_signature == client_signature:
-                return
+    for time_add in [-3, -2, -1, 0]:
+        check_time = str(current_time + time_add)
+        
+        for file in os.listdir("users"):
+            with open(f"users/{file}", 'r') as f:
+                user_data = json.load(f)
+                user_token = user_data.get('session_token')
+                server_signature = hashlib.sha256(f"{user_token}{body_str}{check_time}".encode()).hexdigest()
+                if server_signature == client_signature:
+                    return
     raise HTTPException(status_code=401, detail="Неверная подпись")
 
 @app.post("/items/create")
