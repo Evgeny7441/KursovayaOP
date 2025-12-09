@@ -11,6 +11,7 @@ import hashlib
 
 app = FastAPI()
 
+current_user_id = None
    
 class User(BaseModel):
     login:str
@@ -42,7 +43,11 @@ class InsertRequest(BaseModel):
     position: str = "end"
     
     
-
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+    
+    
 def check_signature(request: Request, body: dict = None):
     client_signature = request.headers.get('Authorization')
     current_time = int(time.time())
@@ -60,10 +65,31 @@ def check_signature(request: Request, body: dict = None):
                     return
     raise HTTPException(status_code=401, detail="Неверная подпись")
 
-
+def save_history(operation_type: str, details: str):
+    global current_user_id
+    history_file = f"history/history_{current_user_id}.json"
+    
+    if not os.path.exists(history_file):
+        return
+    
+    with open(history_file, 'r') as f:
+        history = json.load(f)
+    
+    current_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+    history_add = {
+        "user": current_user_id,
+        "time": current_time,
+        "operation": operation_type,
+        "details": details
+    }
+    history.append(history_add)
+    
+    with open(history_file, 'w') as f:
+        json.dump(history, f, indent=2)
+        
 @app.post("/users/reg")
 def create_user(user: User):
-       
+    global current_user_id   
     # Проверка существования пользователя
     for file in os.listdir("users"):
         with open(f"users/{file}", 'r') as f:
@@ -74,15 +100,25 @@ def create_user(user: User):
                 raise HTTPException(status_code=400, detail="Email уже занят")
             
     user.id = int(time.time())
+    current_user_id = user.id
     user.technical_token = str(random.getrandbits(128))
     user.session_token = hashlib.sha256(f"{user.technical_token}{time.time()}".encode()).hexdigest()
     
     with open(f"users/user_{user.id}.json", 'w') as f:
         json.dump(user.model_dump(), f)
-        return user
+        
+    with open(f"history/history_{user.id}.json", 'w') as f:
+        json.dump([], f)
+        
+    save_history("register", "Пользователь зарегистрирован")  
+    return {
+        "login": user.login,
+        "session_token": user.session_token
+    }
     
 @app.post("/users/auth")
 def auth_user(params: AuthUser):
+    global current_user_id
     json_files_names = [file for file in os.listdir('users/') if file.endswith('.json')]
     for json_file_name in json_files_names:
         file_path = os.path.join('users/', json_file_name)
@@ -90,10 +126,11 @@ def auth_user(params: AuthUser):
             json_item = json.load(f)
             user = User(**json_item)
             if user.login == params.login and user.password == params.password:
-                
+                current_user_id = user.id
                 user.session_token = hashlib.sha256(f"{user.technical_token}{time.time()}".encode()).hexdigest()
                 with open(file_path, 'w') as f_write:
                     json.dump(user.model_dump(), f_write)
+                    save_history("auth", "Успешная авторизация")
                 return {
                     "login": user.login, 
                     "session_token": user.session_token
@@ -121,57 +158,72 @@ def gnome_sort(array: List[int]) -> List[int]:
 @app.post("/array/input/")
 def post_array(request: ArrayRequest, request_obj: Request):
     check_signature(request_obj, request.model_dump())
-    global current_array, sort_array
+    
+    global current_array, sort_array, current_user_id
     current_array = request.array
     sort_array = []
+    save_history("input_array", f"Введен массив")
     return {"message": "Массив передан", "array": current_array}
 
 @app.get("/array/get/")
 def get_array(request_obj: Request):
     check_signature(request_obj)
+    
+    global current_array, sort_array, current_user_id
     if not sort_array:
         raise HTTPException(status_code=404, detail="Массив не был отсортирован")
+    
+    save_history("array_get", f"Получен массив")
     return {"message": "Отсортированный массив", "array": sort_array}
 
 @app.get("/array/part/")
 def get_array_range(request: ArrayRangeRequest, request_obj: Request):
     check_signature(request_obj, request.model_dump())
+    
+    global current_array, sort_array, current_user_id
     if not sort_array:
         raise HTTPException(status_code=404, detail="Массив не был отсортирован")
+    
+    save_history("array_get", f"Получена часть массива")
     return {"message": "Часть массива", "array": sort_array[request.start:request.end]}
-
 
 @app.post("/array/generate/")
 def generate_array(request_obj: Request):
     check_signature(request_obj)
-    global current_array, sort_array
+    
+    global current_array, sort_array, current_user_id
     random_array = [random.randint(0, 100) for _ in range(10)]
     current_array = random_array
     sort_array = []
+    save_history("generate_array", f"Сгенерирован массив")
     return {"message": "Случайный массив сгенерирован", "array": current_array}
 
 @app.delete("/array/delete/")
 def delete_array(request_obj: Request):
     check_signature(request_obj)
-    global current_array, sort_array
+    
+    global current_array, sort_array, current_user_id
     current_array = []
     sort_array = []
-    return {"message": "Массив удален"}
+    save_history("delete_array", "Массив удален")
+    return {"message": "Массив удален", "array": current_array}
 
 @app.post("/array/sort/")
 def sort_arr(request_obj: Request):
     check_signature(request_obj)
-    global sort_array, current_array
+    
+    global current_array, sort_array, current_user_id
     if not current_array:
         raise HTTPException(status_code=404, detail="Массив не найден")
+    
     sort_array = gnome_sort(current_array.copy())
-    return {"message": "Массив отсортирован", "sorted": sort_array}
+    save_history("sort_array", f"Отсортирован массив")
+    return {"message": "Массив отсортирован", "array": sort_array}
 
 @app.patch("/array/addelement/")
 def add_elements(request: InsertRequest, request_obj: Request):
-    print(request)
     check_signature(request_obj, request.model_dump())
-    global current_array, sort_array
+    global current_array, sort_array, current_user_id
     if not current_array:
         raise HTTPException(status_code=404, detail="Массив не найден")
     
@@ -185,4 +237,63 @@ def add_elements(request: InsertRequest, request_obj: Request):
         current_array[request.index+1:request.index+1] = request.values
     
     sort_array = []
+    save_history("add_elements", f"Добавлены элементы")
     return {"message": "Элементы добавлены", "array": current_array}
+
+@app.get("/users/history")
+def get_user_history(request_obj: Request):
+    check_signature(request_obj)
+    global current_user_id
+    
+    history_file = f"history/history_{current_user_id}.json"
+    
+    with open(history_file, 'r') as f:
+        history = json.load(f)
+        
+    if history == []:
+        return {"message": "История пуста", "history": history}
+    
+    return {
+        "message": "История запросов",
+        "history": history
+    }
+
+@app.delete("/users/history")
+def delete_user_history(request_obj: Request):
+    check_signature(request_obj)
+    global current_user_id
+    
+    history_file = f"history/history_{current_user_id}.json"
+    if os.path.exists(history_file):
+
+        with open(history_file, 'w') as f:
+            json.dump([], f)
+            
+    return {"message": "История удалена"}
+
+@app.patch("/users/password")
+def change_password(request: PasswordChange, request_obj: Request):
+    check_signature(request_obj, request.model_dump())
+    global current_user_id
+    
+    user_file = f"users/user_{current_user_id}.json"
+    if not os.path.exists(user_file):
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    with open(user_file, 'r') as f:
+        user = json.load(f)
+    if user['password'] != request.old_password:
+        raise HTTPException(status_code=400, detail="Неверный старый пароль")
+    
+    user['password'] = request.new_password
+    user['technical_token'] = hashlib.sha256(f"{time.time()}{random.getrandbits(256)}".encode()).hexdigest()
+    user['session_token'] = hashlib.sha256(f"{user['technical_token']}{time.time()}".encode()).hexdigest()
+    
+    with open(user_file, 'w') as f:
+        json.dump(user, f)
+    save_history("change_password", "Пароль изменен")
+    
+    return {
+        "message": "Пароль изменен",
+        "new_session_token": user['session_token']
+    }

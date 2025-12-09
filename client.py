@@ -202,7 +202,6 @@ def add_elements_to_array():
         print("Неверный выбор")
         return
     
-    print(data)
     result, code = send_request('PATCH', "http://localhost:8000/array/addelement/", data)
     
     if code == 200:
@@ -252,27 +251,94 @@ def work_array():
         except Exception as e:
             print(f"Произошла ошибка: {e}")
                
+def view_history():
+    result, code = send_request('GET', "http://localhost:8000/users/history")
+    
+    if code == 200:
+        response_data = json.loads(result)
+        print(f"{response_data['message']}")
+        history = response_data['history']
+        for inf in history:
+            print(f"- {inf.get('time')}: {inf.get('operation')} ({inf.get('details')})")
+    else:
+        print_error(result)
+
+def delete_history():
+    confirm = input("Вы точно хотите удалить историю? (да/нет): ")
+    if confirm.lower() != 'да':
+        print("Отмена")
+        return
+    
+    result, code = send_request('DELETE', "http://localhost:8000/users/history")
+    
+    if code == 200:
+        response_data = json.loads(result)
+        print(response_data['message'])
+    else:
+        print_error(result)
+
+def change_password():
+    print("\nСМЕНА ПАРОЛЯ")
+    old_password = input("Старый пароль: ")
+    new_password = input("Новый пароль: ")
+    if not validate_password(new_password):
+        return
+    data = {"old_password": old_password, "new_password": new_password}
+    result, code = send_request('PATCH', "http://localhost:8000/users/password", data)
+    
+    if code == 200:
+        response_data = json.loads(result)
+        global session_token
+        session_token = response_data['new_session_token']
+        print(response_data['message'])
+    else:
+        print_error(result)
+            
+                           
+def account_management():
+    while True:
+        print("\nУПРАВЛЕНИЕ УЧЕТНОЙ ЗАПИСЬЮ")
+        print("1 - Удалить историю запросов")
+        print("2 - Сменить пароль")
+        print("3 - Назад")
+        
+        choice = input("Выберите действие: ")
+        
+        try:
+            match choice:
+                case "1":
+                    delete_history()
+                case "2":
+                    change_password()
+                case "3":
+                    return
+                case _:
+                    print("Нет такого выбора")
+        except Exception as e:
+            print(f"Произошла ошибка: {e}")
+
 def main_menu():
     while True:
         try:
             print("\nГЛАВНОЕ МЕНЮ")
-            command = int(input("1 - Работа с массивом\n2 - История запросов\n3 - Управление уч.записью\n4 - Выход из профиля\n"))
+            command = int(input("1 - Работа с массивом\n2 - История запросов\n3 - Управление учетной записью\n4 - Выход из профиля\n"))
             
             match command:
                 case 1:
                     work_array()
                 case 2:
-                    print("История запросов")
+                    view_history()
                 case 3:
-                    print("Управление уч.записью")    
+                    account_management()
                 case 4:
+                    print("Выход из профиля выполнен")
                     break
                 case _:
                     print("Нет такого выбора")
                     
         except ValueError:
             print("Некорректный ввод!")
-            
+
 while True:
     try:
         print("\nВведите команду:")
